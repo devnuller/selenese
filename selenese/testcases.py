@@ -69,13 +69,13 @@ class TestRunner(object):
     def __init__(self, testcase):
         self.testcase = testcase
 
-    def run(self, webdriver):
+    def run(self, webdriver, variables={}):
         """
         runs the tests of the TestCase with the given webdriver
         :param  webdriver: a selenium WebDriver
         :return: a TestResults object
         """
-        executor = Executor(self.testcase, webdriver)
+        executor = Executor(self.testcase, webdriver, variables)
         results = TestResults(self.testcase, executor)
         for command in self.testcase:
             if command.command.endswith('AndWait'):
@@ -85,7 +85,7 @@ class TestRunner(object):
                 command_name = command.command
                 wait = False
             execute = getattr(executor, command_name)
-            result = execute(command.target, command.value)
+            result = execute(executor.subst_variable(command.target), executor.subst_variable(command.value))
             results.append(result)
             if result == False:
                 raise Failure([command.command, command.target, command.value, False])

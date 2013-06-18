@@ -5,7 +5,7 @@ from tempfile import NamedTemporaryFile
 from selenese.locators import create_locator
 from selenese.patterns import create_pattern
 from time import sleep
-
+import re
 
 class Executor(object):
     """
@@ -13,11 +13,12 @@ class Executor(object):
     """
     timeout = 30
 
-    def __init__(self, testcase, webdriver):
+    def __init__(self, testcase, webdriver, variables = {} ):
         self.testcase = testcase
         self.webdriver = webdriver
-        self._storage = {}
+        self._storage = variables.copy()
         self._directory = {}
+        self._pre_initialized = ( len(variables) > 0 )
 
     def _create_file(self, filename):
         """
@@ -31,14 +32,34 @@ class Executor(object):
         self._directory[filename] = file_pointer
         return file_pointer
 
+    def subst_variable(self, string):
+        """
+        replace any variables in the string passed with their value from the executor store
+        """
+        var_pattern = re.compile(r'[\$][\{]([^\}]*)[\}]')
+
+        match = var_pattern.match(string)
+        while match:
+            var_name=match.group(1)
+            string = var_pattern.sub(self._storage[var_name],string,count=1)    # undefined variable -> IndexError
+            match = var_pattern.match(string)
+        return string
+
+
     def _andWait(self):
         for i in range(self.timeout):
             sleep(1)
             ready_state = self.webdriver.execute_script('return document.readyState')
             if ready_state == 'complete':
                 return True
-            i # XXX
+            # XXX
         return False
+
+    def waitForPageToLoad(self, target, value):
+        return self._andWait()
+
+    def waitForFrameToLoad(self, target, value):
+        return self._andWait()
 
     # Commands
     def addSelection(self, target, value):
@@ -121,6 +142,9 @@ class Executor(object):
             url = target
         self.webdriver.get(url)
 
+    def pause(self, target, value):
+        sleep(int(target)/1000)
+
     def refresh(self, target, value):
         self.webdriver.refresh()
 
@@ -130,19 +154,48 @@ class Executor(object):
     def runScript(self, target, value):
         pass
 
+    def select(self,target,value):
+        # find select(target) and set it's value
+        sel_elem  = create_locator(target).get_element(self.webdriver)
+        if value.startswith('id='):
+            raise NotImplemented
+        elif value.startswith('index='):
+            index=int(value[6:])
+            child=sel_elem.find_elements_by_tag_name("option")[index]
+        elif value.startswith('value='):
+            raise NotImplemented
+        elif value.startswith('label='):
+            raise NotImplemented
+        else:
+            # assume label=
+            raise NotImplemented
+
+        child.click()
+
     def selectPopUp(self, target, value):
         # TODO
         self.webdriver.switch_to_window(target)
 
     def selectWindow(self, target, value):
-        # TODO
-        self.webdriver.switch_to_window(target)
+        if target != "null":
+            self.webdriver.switch_to_window(target)
+
+    def selectFrame(self, target, value):
+        self.webdriver.switch_to_default_content()
+        if target.startswith('//'):
+            fram = self.webdriver.find_elements_by_xpath(target)[0]
+        else:
+            try:
+                fram = self.webdriver.find_elements_by_name(target)[0]
+            except IndexError:
+                fram = target
+        self.webdriver.switch_to_frame(fram)
 
     def submit(self, target, value):
         pass
 
     def type(self, target, value):
-        pass
+        self.typeKeys(target,value)
 
     def typeKeys(self, target, value):
         create_locator(target).get_element(self.webdriver).send_keys(value)
@@ -222,6 +275,14 @@ class Executor(object):
         except NoSuchElementException:
             return False
 
+    def waitForElementPresent(self, target, value):
+        for i in range(self.timeout+1):
+            if self.assertElementPresent(target, value):
+                return True
+            sleep(1)
+
+        return False
+
     def assertLocation(self, target, value):
         return create_pattern(target).compare(self.webdriver.current_url)
 
@@ -243,6 +304,10 @@ class Executor(object):
     def assertTitle(self, target, value):
         pattern = create_pattern(target)
         return pattern.compare(self.webdriver.title)
+
+    def store(self,target,value):
+        if not self._pre_initialized:       # if variables were passed externally, ignore store commands in testcase
+            self._storage[value]=target
 
     def storeAlert(self, target, value):
         self._storage[target] = self.webdriver.switch_to_alert().text

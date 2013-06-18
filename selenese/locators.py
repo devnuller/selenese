@@ -47,6 +47,8 @@ def create_locator(locator_string):
         return CssLocator(locator_string[4:])
     elif locator_string.startswith('xpath='):
         return XpathLocator(locator_string[6:])
+    elif locator_string.startswith('//'):
+        return XpathLocator(locator_string)
     else:
         raise NotImplementedError()
 
